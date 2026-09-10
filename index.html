@@ -158,19 +158,24 @@
           <input id="stock-unit" class="field-input" placeholder="adet / metre / kg">
         </div>
       </div>
-      <div class="grid grid-cols-3 gap-3">
+      <div class="grid grid-cols-2 gap-3">
         <div>
           <label class="field-label">Adet</label>
           <input id="stock-qty" type="number" step="any" class="field-input" placeholder="0">
         </div>
         <div>
-          <label class="field-label">Alış Fiyatı</label>
-          <input id="stock-buy" type="number" step="any" class="field-input" placeholder="0">
+          <label class="field-label">KDV Oranı (%)</label>
+          <input id="stock-vat" type="number" step="any" class="field-input" placeholder="20" value="20" oninput="updateStockSellPreview()">
         </div>
-        <div>
-          <label class="field-label">Satış Fiyatı</label>
-          <input id="stock-sell" type="number" step="any" class="field-input" placeholder="0">
-        </div>
+      </div>
+      <div>
+        <label class="field-label">Fiyat (KDV'siz)</label>
+        <input id="stock-buy" type="number" step="any" class="field-input" placeholder="0" oninput="updateStockSellPreview()">
+      </div>
+      <div class="rounded-lg p-3" style="background:var(--steel-tint);">
+        <span class="text-[11px]" style="color:var(--ink-soft);">Satış Fiyatı (KDV Dahil) — otomatik hesaplanır</span>
+        <div id="stock-sell-display" class="font-bold text-lg" style="color:var(--steel-dark);">0 ₺</div>
+        <input type="hidden" id="stock-sell">
       </div>
       <div>
         <label class="field-label">Ürün Görseli (Dosya / Kamera)</label>
@@ -429,6 +434,14 @@ function clearStockImage(){
   setStockImagePreview(null);
 }
 
+function updateStockSellPreview(){
+  const base = parseFloat(document.getElementById('stock-buy').value) || 0;
+  const vat = parseFloat(document.getElementById('stock-vat').value) || 0;
+  const sell = base * (1 + vat / 100);
+  document.getElementById('stock-sell').value = sell;
+  document.getElementById('stock-sell-display').textContent = fmtMoney(sell);
+}
+
 function openStockModal(item){
   document.getElementById('stock-modal-title').textContent = item ? 'Malzemeyi Düzenle' : 'Malzeme Ekle';
   document.getElementById('stock-id').value = item ? item.id : '';
@@ -437,7 +450,8 @@ function openStockModal(item){
   document.getElementById('stock-unit').value = item ? item.unit : 'adet';
   document.getElementById('stock-qty').value = item ? item.qty : '';
   document.getElementById('stock-buy').value = item ? item.buyPrice : '';
-  document.getElementById('stock-sell').value = item ? item.sellPrice : '';
+  document.getElementById('stock-vat').value = item ? (item.vatRate ?? 20) : 20;
+  updateStockSellPreview();
   document.getElementById('stock-image-input').value = '';
   document.getElementById('stock-image-data').value = item && item.image ? item.image : '';
   setStockImagePreview(item && item.image ? item.image : null);
@@ -463,6 +477,7 @@ async function saveStockItem(){
       qty: parseFloat(document.getElementById('stock-qty').value) || 0,
       buyPrice: parseFloat(document.getElementById('stock-buy').value) || 0,
       sellPrice: parseFloat(document.getElementById('stock-sell').value) || 0,
+      vatRate: parseFloat(document.getElementById('stock-vat').value) || 0,
       image: document.getElementById('stock-image-data').value || null,
     };
     if(id){ await Store.update(COLL_STOCK, id, payload); showToast('Malzeme güncellendi'); }
@@ -511,7 +526,7 @@ async function renderStock(){
           <span class="chip" style="background:var(--steel-tint);color:var(--steel-dark);">${escapeHtml(i.category)}</span>
         </div>
         <p class="text-xs mt-1" style="color:var(--ink-soft);">
-          ${i.qty} ${escapeHtml(i.unit)} stokta · Alış ${fmtMoney(i.buyPrice)} · Satış ${fmtMoney(i.sellPrice)}
+          ${i.qty} ${escapeHtml(i.unit)} stokta · KDV'siz ${fmtMoney(i.buyPrice)} · Satış (KDV Dahil) ${fmtMoney(i.sellPrice)}${i.vatRate ? ` · KDV %${i.vatRate}` : ''}
         </p>
       </div>
       <div class="flex flex-col gap-1.5">
