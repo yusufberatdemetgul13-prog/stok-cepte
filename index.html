@@ -247,6 +247,12 @@
       <div id="material-rows" class="space-y-2"></div>
     </div>
 
+    <!-- Labor / işçilik -->
+    <div class="mt-4">
+      <label class="field-label">İşçilik (₺)</label>
+      <input id="customer-labor" type="number" step="any" value="0" oninput="updateTotals()" class="field-input" placeholder="0">
+    </div>
+
     <div class="mt-4 grid grid-cols-2 gap-3">
       <div>
         <label class="field-label">Ödenen Tutar</label>
@@ -534,6 +540,7 @@ async function openCustomerModal(customer){
   document.getElementById('customer-address').value = customer ? customer.address : '';
   document.getElementById('customer-date').value = customer ? customer.date : todayStr();
   document.getElementById('customer-paid').value = customer ? customer.paid : 0;
+  document.getElementById('customer-labor').value = customer ? (customer.laborCost || 0) : 0;
   document.getElementById('voice-status').textContent = '';
   document.getElementById('voice-transcript-box').classList.add('hidden');
 
@@ -660,12 +667,14 @@ function collectMaterialRows(){
 
 function updateTotals(){
   const items = collectMaterialRows();
-  const total = items.reduce((s,i)=> s + i.qty * i.price, 0);
+  const materialsTotal = items.reduce((s,i)=> s + i.qty * i.price, 0);
+  const labor = parseFloat(document.getElementById('customer-labor').value) || 0;
+  const total = materialsTotal + labor;
   const paid = parseFloat(document.getElementById('customer-paid').value) || 0;
   const remaining = total - paid;
   document.getElementById('customer-total-display').textContent = fmtMoney(total);
   document.getElementById('customer-remaining-display').textContent = fmtMoney(remaining);
-  return { total, paid, remaining, items };
+  return { total, paid, remaining, items, labor };
 }
 
 let isSavingCustomer = false;
@@ -673,7 +682,7 @@ async function saveCustomer(){
   if(isSavingCustomer) return; // art arda basmayı engeller
   const name = document.getElementById('customer-name').value.trim();
   if(!name){ showToast('Müşteri adı gerekli'); return; }
-  const { total, paid, remaining, items } = updateTotals();
+  const { total, paid, remaining, items, labor } = updateTotals();
   if(items.length === 0){ showToast('En az bir malzeme satırı ekleyin'); return; }
 
   isSavingCustomer = true;
@@ -689,6 +698,7 @@ async function saveCustomer(){
       address: document.getElementById('customer-address').value.trim(),
       date: document.getElementById('customer-date').value || todayStr(),
       items,
+      laborCost: labor,
       total, paid, remaining,
       pdfData: null,
       pdfFileName: null,
@@ -772,6 +782,59 @@ async function sendWhatsApp(id){
   openWhatsAppChat(c.phone, message);
 }
 
+/* =========================================================
+   PDF DOWNLOAD — mobile-safe.
+   Raw <a href="data:..." download> is unreliable on mobile
+   (iOS Safari mostly ignores "download" for data: URIs and
+   just tries to preview/navigate instead, often showing
+   nothing). We convert the stored base64 data URI to a real
+   Blob + object URL, which works on Android/desktop, and on
+   iOS we open it in a new tab so the user can use the native
+   Share icon to save the PDF.
+   ========================================================= */
+function dataUriToBlob(dataUri){
+  const [header, base64] = dataUri.split(',');
+  const mimeMatch = header.match(/data:(.*?);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/pdf';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for(let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+function isIOS(){
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS 13+
+}
+
+async function downloadCustomerPdf(id){
+  const c = await Store.getById(COLL_CUSTOMERS, id);
+  if(!c || !c.pdfData){ showToast('PDF bulunamadı'); return; }
+  try{
+    const blob = dataUriToBlob(c.pdfData);
+    const blobUrl = URL.createObjectURL(blob);
+    const fileName = c.pdfFileName || 'dokum.pdf';
+
+    if(isIOS()){
+      // Download attribute is unreliable for PDFs on iOS Safari;
+      // open in a new tab so the user can tap Share > Save to Files.
+      window.open(blobUrl, '_blank');
+      showToast('PDF açıldı — kaydetmek için paylaş simgesine dokunun');
+    } else {
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+  }catch(e){
+    console.warn('PDF indirme hatası:', e);
+    showToast('PDF indirilemedi, tekrar deneyin');
+  }
+}
+
 function sendWhatsAppFromForm(){
   const { total, paid, remaining } = updateTotals();
   const message = buildWhatsAppMessage({
@@ -824,10 +887,10 @@ async function renderCustomers(){
       </div>
       <div class="flex flex-col gap-2 mt-3 pt-3" style="border-top:1px solid var(--line);">
         <div class="flex items-center gap-2">
-          <a href="${c.pdfData || '#'}" download="${c.pdfFileName || 'dokum.pdf'}" class="btn btn-steel text-xs flex-1" style="padding:.5rem;">
+          <button onclick="downloadCustomerPdf('${c.id}')" class="btn btn-steel text-xs flex-1" style="padding:.5rem;">
             <svg class="icon" style="stroke:#fff;width:15px;height:15px;" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
             PDF İndir
-          </a>
+          </button>
           <button onclick="sendWhatsApp('${c.id}')" class="btn text-xs flex-1" style="background:#25D366;color:#fff;padding:.5rem;">
             <svg class="icon" style="width:15px;height:15px;stroke:none;fill:#fff;" viewBox="0 0 24 24"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0012.04 2zm5.71 14.03c-.24.68-1.4 1.32-1.93 1.4-.5.08-1.14.11-1.84-.12-.42-.14-.96-.32-1.65-.63-2.9-1.25-4.79-4.16-4.94-4.35-.14-.19-1.19-1.58-1.19-3.02 0-1.44.75-2.15 1.02-2.45.27-.29.59-.36.78-.36.2 0 .39 0 .56.01.18.01.42-.07.66.5.24.58.82 2 .89 2.15.07.15.12.32.02.51-.1.19-.15.31-.29.48-.15.17-.31.38-.44.51-.15.15-.3.31-.13.6.17.29.75 1.24 1.61 2.01 1.11.99 2.04 1.3 2.33 1.45.29.15.46.13.63-.08.17-.21.72-.84.91-1.13.19-.29.38-.24.63-.14.26.1 1.65.78 1.93.92.29.14.48.21.55.33.07.12.07.68-.17 1.36z"/></svg>
             WhatsApp
@@ -914,8 +977,16 @@ function generateInvoicePdf(customer){
   doc.line(marginX, y, 195, y);
   y += 8;
 
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(60, 60, 60);
+  if(customer.laborCost){
+    pdfText(`Iscilik: ${Number(customer.laborCost).toFixed(2)} TL`, marginX, y); y += 6;
+  }
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
+  doc.setTextColor(40, 40, 40);
   pdfText(`Toplam Tutar: ${customer.total.toFixed(2)} TL`, marginX, y); y += 6;
   pdfText(`Odenen: ${customer.paid.toFixed(2)} TL`, marginX, y); y += 6;
   doc.setTextColor(176, 67, 46);
