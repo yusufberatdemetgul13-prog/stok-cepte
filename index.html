@@ -188,7 +188,7 @@
     </div>
     <div class="flex gap-2 mt-5">
       <button onclick="closeStockModal()" class="btn btn-ghost flex-1">Vazgeç</button>
-      <button onclick="saveStockItem()" class="btn btn-steel flex-1">Kaydet</button>
+      <button id="save-stock-btn" onclick="saveStockItem()" class="btn btn-steel flex-1">Kaydet</button>
     </div>
   </div>
 </div>
@@ -264,7 +264,7 @@
 
     <div class="flex gap-2 mt-5">
       <button onclick="closeCustomerModal()" class="btn btn-ghost flex-1">Vazgeç</button>
-      <button onclick="saveCustomer()" class="btn btn-copper flex-1">Onayla, Kaydet ve PDF Oluştur</button>
+      <button id="save-customer-btn" onclick="saveCustomer()" class="btn btn-copper flex-1">Onayla, Kaydet ve PDF Oluştur</button>
     </div>
     <button onclick="sendWhatsAppFromForm()" class="btn text-sm w-full mt-2" style="background:#25D366;color:#fff;">
       <svg class="icon" style="width:17px;height:17px;stroke:none;fill:#fff;" viewBox="0 0 24 24"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0012.04 2zm5.71 14.03c-.24.68-1.4 1.32-1.93 1.4-.5.08-1.14.11-1.84-.12-.42-.14-.96-.32-1.65-.63-2.9-1.25-4.79-4.16-4.94-4.35-.14-.19-1.19-1.58-1.19-3.02 0-1.44.75-2.15 1.02-2.45.27-.29.59-.36.78-.36.2 0 .39 0 .56.01.18.01.42-.07.66.5.24.58.82 2 .89 2.15.07.15.12.32.02.51-.1.19-.15.31-.29.48-.15.17-.31.38-.44.51-.15.15-.3.31-.13.6.17.29.75 1.24 1.61 2.01 1.11.99 2.04 1.3 2.33 1.45.29.15.46.13.63-.08.17-.21.72-.84.91-1.13.19-.29.38-.24.63-.14.26.1 1.65.78 1.93.92.29.14.48.21.55.33.07.12.07.68-.17 1.36z"/></svg>
@@ -439,23 +439,34 @@ function openStockModal(item){
 }
 function closeStockModal(){ document.getElementById('stock-modal').classList.add('hidden'); }
 
+let isSavingStock = false;
 async function saveStockItem(){
+  if(isSavingStock) return; // art arda basmayı engeller
   const name = document.getElementById('stock-name').value.trim();
   if(!name){ showToast('Malzeme adı gerekli'); return; }
-  const id = document.getElementById('stock-id').value;
-  const payload = {
-    name,
-    category: document.getElementById('stock-category').value.trim() || 'Genel',
-    unit: document.getElementById('stock-unit').value.trim() || 'adet',
-    qty: parseFloat(document.getElementById('stock-qty').value) || 0,
-    buyPrice: parseFloat(document.getElementById('stock-buy').value) || 0,
-    sellPrice: parseFloat(document.getElementById('stock-sell').value) || 0,
-    image: document.getElementById('stock-image-data').value || null,
-  };
-  if(id){ await Store.update(COLL_STOCK, id, payload); showToast('Malzeme güncellendi'); }
-  else{ await Store.add(COLL_STOCK, {id: uid(), ...payload}); showToast('Malzeme eklendi'); }
-  closeStockModal();
-  renderStock();
+  isSavingStock = true;
+  const btn = document.getElementById('save-stock-btn');
+  const btnPrevText = btn ? btn.textContent : null;
+  if(btn){ btn.disabled = true; btn.classList.add('opacity-60','pointer-events-none'); btn.textContent = 'Kaydediliyor...'; }
+  try{
+    const id = document.getElementById('stock-id').value;
+    const payload = {
+      name,
+      category: document.getElementById('stock-category').value.trim() || 'Genel',
+      unit: document.getElementById('stock-unit').value.trim() || 'adet',
+      qty: parseFloat(document.getElementById('stock-qty').value) || 0,
+      buyPrice: parseFloat(document.getElementById('stock-buy').value) || 0,
+      sellPrice: parseFloat(document.getElementById('stock-sell').value) || 0,
+      image: document.getElementById('stock-image-data').value || null,
+    };
+    if(id){ await Store.update(COLL_STOCK, id, payload); showToast('Malzeme güncellendi'); }
+    else{ await Store.add(COLL_STOCK, {id: uid(), ...payload}); showToast('Malzeme eklendi'); }
+    closeStockModal();
+    renderStock();
+  } finally {
+    isSavingStock = false;
+    if(btn){ btn.disabled = false; btn.classList.remove('opacity-60','pointer-events-none'); btn.textContent = btnPrevText; }
+  }
 }
 
 async function deleteStockItem(id){
@@ -657,48 +668,59 @@ function updateTotals(){
   return { total, paid, remaining, items };
 }
 
+let isSavingCustomer = false;
 async function saveCustomer(){
+  if(isSavingCustomer) return; // art arda basmayı engeller
   const name = document.getElementById('customer-name').value.trim();
   if(!name){ showToast('Müşteri adı gerekli'); return; }
   const { total, paid, remaining, items } = updateTotals();
   if(items.length === 0){ showToast('En az bir malzeme satırı ekleyin'); return; }
 
-  const id = document.getElementById('customer-id').value || uid();
-  const customer = {
-    id,
-    name,
-    phone: document.getElementById('customer-phone').value.trim(),
-    address: document.getElementById('customer-address').value.trim(),
-    date: document.getElementById('customer-date').value || todayStr(),
-    items,
-    total, paid, remaining,
-    pdfData: null,
-    pdfFileName: null,
-  };
+  isSavingCustomer = true;
+  const btn = document.getElementById('save-customer-btn');
+  const btnPrevText = btn ? btn.textContent : null;
+  if(btn){ btn.disabled = true; btn.classList.add('opacity-60','pointer-events-none'); btn.textContent = 'Kaydediliyor...'; }
+  try{
+    const id = document.getElementById('customer-id').value || uid();
+    const customer = {
+      id,
+      name,
+      phone: document.getElementById('customer-phone').value.trim(),
+      address: document.getElementById('customer-address').value.trim(),
+      date: document.getElementById('customer-date').value || todayStr(),
+      items,
+      total, paid, remaining,
+      pdfData: null,
+      pdfFileName: null,
+    };
 
-  // Decrement matched stock quantities
-  for(const it of items){
-    if(it.stockId){
-      const stockItem = currentStockCache.find(s => s.id === it.stockId);
-      if(stockItem){
-        await Store.update(COLL_STOCK, it.stockId, { qty: Math.max(0, stockItem.qty - it.qty) });
+    // Decrement matched stock quantities
+    for(const it of items){
+      if(it.stockId){
+        const stockItem = currentStockCache.find(s => s.id === it.stockId);
+        if(stockItem){
+          await Store.update(COLL_STOCK, it.stockId, { qty: Math.max(0, stockItem.qty - it.qty) });
+        }
       }
     }
+
+    // Generate PDF
+    const { dataUri, fileName } = generateInvoicePdf(customer);
+    customer.pdfData = dataUri;
+    customer.pdfFileName = fileName;
+
+    const exists = await Store.getById(COLL_CUSTOMERS, id);
+    if(exists){ await Store.update(COLL_CUSTOMERS, id, customer); }
+    else{ await Store.add(COLL_CUSTOMERS, customer); }
+
+    showToast('Kayıt ve PDF oluşturuldu');
+    closeCustomerModal();
+    renderCustomers();
+    renderStock();
+  } finally {
+    isSavingCustomer = false;
+    if(btn){ btn.disabled = false; btn.classList.remove('opacity-60','pointer-events-none'); btn.textContent = btnPrevText; }
   }
-
-  // Generate PDF
-  const { dataUri, fileName } = generateInvoicePdf(customer);
-  customer.pdfData = dataUri;
-  customer.pdfFileName = fileName;
-
-  const exists = await Store.getById(COLL_CUSTOMERS, id);
-  if(exists){ await Store.update(COLL_CUSTOMERS, id, customer); }
-  else{ await Store.add(COLL_CUSTOMERS, customer); }
-
-  showToast('Kayıt ve PDF oluşturuldu');
-  closeCustomerModal();
-  renderCustomers();
-  renderStock();
 }
 
 async function deleteCustomer(id){
